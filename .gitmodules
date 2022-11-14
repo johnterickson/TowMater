@@ -1,0 +1,3 @@
+[submodule "rlbot-rust"]
+	path = rlbot-rust
+	url = https://github.com/johnterickson/rlbot-rust.git
