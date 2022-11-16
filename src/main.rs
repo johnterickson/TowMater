@@ -3,7 +3,7 @@ use std::error::Error;
 mod angle;
 use angle::Angle;
 use na::Vector3;
-use rlbot::RLBot;
+use rlbot::{RLBot, Rotator};
 
 const BUILD_TIME : &str = include!(concat!(env!("OUT_DIR"), "/timestamp.txt"));
 
@@ -83,7 +83,8 @@ impl MyBot {
 
         let car = &packet.players[self.player_index];
         let car_pos = car.physics.location.to_vec3();
-        let (car_pitch, _car_yaw, car_roll) = {
+        let car_vel = car.physics.velocity.to_vec3();
+        let (car_pitch, car_yaw, car_roll) = {
             let angles = &car.physics.rotation;
             (Angle::from_radians(angles.pitch), Angle::from_radians(angles.yaw), Angle::from_radians(angles.roll))
         };
@@ -201,11 +202,8 @@ impl MyBot {
 
         group.draw_line_3d((car_pos.x, car_pos.y, car_pos.z), (target_pos.x, target_pos.y, target_pos.z), white);
 
-
-
         let car_to_target = target_pos - car_pos;
         let desired_yaw = Angle::from_atan2(car_to_target.y, car_to_target.x);
-        let car_yaw = Angle::from_radians(car.physics.rotation.yaw);
         let steer_degrees = (desired_yaw - car_yaw).degrees();
 
         let (steer_degrees, throttle) = if steer_degrees.abs() < 90.0 {
@@ -215,7 +213,7 @@ impl MyBot {
         };
 
         let steer_strength = 0.5;
-        let steer = (steer_degrees * steer_strength).max(-1.0).min(1.0);
+        let steer = (steer_degrees * steer_strength).clamp(-1.0, 1.0);
 
         let car_to_target_xy_distance = {
             let mut car_to_target_xy = car_to_target;
@@ -224,9 +222,28 @@ impl MyBot {
         };
 
         let mut jump = false;
+        let mut car_rotate: Rotator = Default::default();
 
-        // go for a header
-        if car_to_target_xy_distance < Self::BALL_RADIUS {
+        let on_wall = car_pos[2] > 2.0 * Self::BALL_RADIUS 
+            && (car_pitch.degrees().abs() > 70.0 || car_roll.degrees().abs() > 70.0)
+            && car.has_wheel_contact;
+
+        let car_in_air = car_pos[2] > 2.0 * Self::BALL_RADIUS && !car.has_wheel_contact;
+        let car_falling = car_vel[2] < 0.0;
+
+        // if on a wall, jump off
+        if on_wall {
+            jump = true;
+        } 
+        // if we're falling through the air, then let's level off and turn in the right direction
+        else if car_in_air && car_falling {
+            car_rotate.roll = (-0.01 * car_roll.degrees()).clamp(-1.0, 1.0);
+            car_rotate.pitch = (-0.01 * car_pitch.degrees()).clamp(-1.0, 1.0);
+            car_rotate.yaw = steer;
+
+        }
+        // go for a header?
+        else if car_to_target_xy_distance < Self::BALL_RADIUS {
             // if above me and coming down
             if ball_pos[2] - car_pos[2] > 1.0 * Self::BALL_RADIUS  && ball_vel[2] < 0.0 {
                 let ball_land_time = ball_pos[2] / (-1.0 * ball_vel[2]);
@@ -275,6 +292,9 @@ impl MyBot {
             steer,
             jump,
             boost,
+            pitch: car_rotate.pitch,
+            roll: car_rotate.roll,
+            yaw: car_rotate.yaw,
             ..Default::default()
         })
     }
