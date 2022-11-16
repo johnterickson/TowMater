@@ -1,4 +1,4 @@
-use std::{error::Error, convert::TryInto};
+use std::error::Error;
 
 mod angle;
 use angle::Angle;
@@ -13,19 +13,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("{}", arg);
     }
 
-    let mut bot = MyBot { player_index: 0, my_goal: None, opp_goal: None };
-
     let args = rlbot::parse_framework_args()
         .map_err(|_| Box::<dyn Error>::from("could not parse framework arguments"))?
         .ok_or_else(|| Box::<dyn Error>::from("not launched by framework"))?;
 
-    let player_index = args.player_index;
+    let player_index = args.player_index as usize;
+
+    let mut bot = MyBot { 
+        player_index, 
+        my_goal: None, 
+        opp_goal: None,
+        kickoff: true,
+    };
 
     let rlbot = rlbot::init_with_options(args.into())?;
 
     let mut field_info = None;
-
-    bot.player_index = player_index.try_into()?;
 
     let mut packets = rlbot.packeteer();
     loop {
@@ -39,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         match bot.get_input(&rlbot, field_info.as_ref(), &packet) {
-            Ok(input) => rlbot.update_player_input(player_index, &input)?,
+            Ok(input) => rlbot.update_player_input(player_index as i32, &input)?,
             Err(e) => eprintln!("{:?}", e),
         }
 
@@ -53,6 +56,7 @@ struct MyBot {
     player_index: usize,
     my_goal: Option<Vector3<f32>>,
     opp_goal: Option<Vector3<f32>>,
+    kickoff: bool,
 }
 
 impl MyBot {
@@ -79,7 +83,7 @@ impl MyBot {
 
         let car = &packet.players[self.player_index];
         let car_pos = car.physics.location.to_vec3();
-        let (car_pitch, car_yaw, car_roll) = {
+        let (car_pitch, _car_yaw, car_roll) = {
             let angles = &car.physics.rotation;
             (Angle::from_radians(angles.pitch), Angle::from_radians(angles.yaw), Angle::from_radians(angles.roll))
         };
@@ -214,6 +218,28 @@ impl MyBot {
         {
             jump = true;
         }
+        
+
+        let mut boost = false;
+
+        if self.kickoff {
+            if car.boost > 0 {
+                boost = true;
+            } else {
+                self.kickoff = false;
+            }
+        }
+
+        if car_to_target_xy_distance > 20.0 * Self::BALL_RADIUS && car_pos[2] < Self::BALL_RADIUS {
+            boost = true;
+        }
+        
+        let misalignment_angle = Angle::between_vecs(&ball_to_opp_goal, &car_to_ball);
+        if offense && misalignment_angle.degrees().abs() < 10.0 // todo adjust for distance to goal and size of goal
+            && (ball_pos[2] - car_pos[2]).abs() < 0.5*Self::BALL_RADIUS // about the same height
+        {
+            boost = true;
+        }
 
         group.render()?;
 
@@ -221,6 +247,7 @@ impl MyBot {
             throttle,
             steer,
             jump,
+            boost,
             ..Default::default()
         })
     }

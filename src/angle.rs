@@ -2,6 +2,8 @@
 
 use std::{f32::consts::PI, ops::Sub};
 
+use na::Vector3;
+
 // [-180, 180)
 pub struct Angle {
     radians: f32,
@@ -24,6 +26,10 @@ impl Angle {
 
     pub fn from_atan2(y: f32, x: f32) -> Self {
         Self::from_radians(f32::atan2(y, x))
+    }
+
+    pub fn between_vecs(a: &Vector3<f32>, b: &Vector3<f32>) -> Self {
+        Self::from_radians(f32::acos(a.normalize().dot(&b.normalize())))
     }
 
     pub fn normalized(&self) -> Self {
