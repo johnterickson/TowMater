@@ -224,9 +224,12 @@ impl MyBot {
         let mut jump = false;
         let mut car_rotate: Rotator = Default::default();
 
+        const WALL_X: f32 = 4096.0;
+
         let on_wall = car_pos[2] > 2.0 * Self::BALL_RADIUS 
             && (car_pitch.degrees().abs() > 70.0 || car_roll.degrees().abs() > 70.0)
-            && car.has_wheel_contact;
+            && car.has_wheel_contact
+            && car_pos.x.abs() > WALL_X - 2.0 * Self::BALL_RADIUS;
 
         let car_in_air = car_pos[2] > 2.0 * Self::BALL_RADIUS && !car.has_wheel_contact;
         let car_falling = car_vel[2] < 0.0;
@@ -243,7 +246,7 @@ impl MyBot {
 
         }
         // go for a header?
-        else if car_to_target_xy_distance < Self::BALL_RADIUS {
+        else if car_to_target_xy_distance < Self::BALL_RADIUS { // && (car_vel - ball_vel).magnitude() < 3.0 * Self::BALL_RADIUS {
             // if above me and coming down
             if ball_pos[2] - car_pos[2] > 1.0 * Self::BALL_RADIUS  && ball_vel[2] < 0.0 {
                 let ball_land_time = ball_pos[2] / (-1.0 * ball_vel[2]);
@@ -254,15 +257,6 @@ impl MyBot {
                 }
             }
         }
-
-        // stuck on wall? jump off it and level
-        if   car_pos[2] > 2.0 * Self::BALL_RADIUS && 
-            (car_pitch.degrees() > 70.0 || car_roll.degrees() > 70.0) &&
-            car.has_wheel_contact
-        {
-            jump = true;
-        }
-        
 
         let mut boost = false;
 
@@ -279,8 +273,7 @@ impl MyBot {
         }
         
         let misalignment_angle = Angle::between_vecs(&ball_to_opp_goal, &car_to_ball);
-        if offense && misalignment_angle.degrees().abs() < 45.0 // todo adjust for distance to goal and size of goal
-            && (ball_pos[2] - car_pos[2]).abs() < 1.0*Self::BALL_RADIUS // about the same height
+        if offense && misalignment_angle.degrees().abs() < 15.0 // todo adjust for distance to goal and size of goal
         {
             boost = true;
         }
