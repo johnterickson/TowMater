@@ -9,9 +9,9 @@ const BUILD_TIME : &str = include!(concat!(env!("OUT_DIR"), "/timestamp.txt"));
 
 fn main() -> Result<(), Box<dyn Error>> {
 
-    for arg in std::env::args() {
-        eprintln!("{}", arg);
-    }
+    // for arg in std::env::args() {
+    //     eprintln!("{}", arg);
+    // }
 
     let args = rlbot::parse_framework_args()
         .map_err(|_| Box::<dyn Error>::from("could not parse framework arguments"))?
@@ -122,16 +122,43 @@ impl MyBot {
         let mut group = rlbot.begin_render_group(Self::CAR_GROUP_BASE_ID + self.player_index as i32);
         let white = group.color_rgb(255, 255, 255);
         let red = group.color_rgb(255, 0, 0);
+        let green = group.color_rgb(0, 255, 0);
+        let blue = group.color_rgb(0, 0, 255);
+        let mag = group.color_rgb(255, 0, 255);
 
         
         let offense = ball_closer_to_opp_goal || breakaway;
 
         let target_pos = if offense {
-            group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), if breakaway { "BREAKAWAY!" } else { "OFFENSE!" }, white);
-            let ball_to_opp_goal_dir = ball_to_opp_goal.normalize();
+            let (desired_ball_dir, distance_to_ball_center) = if offense {
+                group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), if breakaway { "BREAKAWAY!" } else { "OFFENSE!" }, white);
+                (ball_to_opp_goal.normalize(), 1.1 * Self::BALL_RADIUS)
+            } else {
+                group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), "DEFENSE!", white);
+                //let avg = (ball_to_opp_goal.normalize() + -1.0 * ball_to_my_goal.normalize()) / 2.0;
+                (-1.0 * ball_to_my_goal.normalize(), 0.9 * Self::BALL_RADIUS)
+            };
+
             let ball_vel_dir = ball_vel.normalize();
-            let nudge_dir = (ball_to_opp_goal_dir - ball_vel_dir).normalize();
-            ball_pos + Self::BALL_RADIUS * -1.1 * nudge_dir            
+            let nudge_dir = (desired_ball_dir - ball_vel_dir).normalize();
+
+            {
+                let arrow_len = 2.0 * Self::BALL_RADIUS;
+                
+                let vel_arrow_tip = ball_pos + arrow_len * ball_vel_dir;
+                group.draw_line_3d((ball_pos.x, ball_pos.y, ball_pos.z),  (vel_arrow_tip.x, vel_arrow_tip.y, vel_arrow_tip.z), green);
+
+                let desired_arrow_tip = ball_pos + arrow_len * desired_ball_dir;
+                group.draw_line_3d((ball_pos.x, ball_pos.y, ball_pos.z),  (desired_arrow_tip.x, desired_arrow_tip.y, desired_arrow_tip.z), blue);
+
+                let nudge_arrow_tip = vel_arrow_tip + arrow_len * nudge_dir;
+                group.draw_line_3d((vel_arrow_tip.x, vel_arrow_tip.y, vel_arrow_tip.z),  (nudge_arrow_tip.x, nudge_arrow_tip.y, nudge_arrow_tip.z), mag);
+
+            }
+
+            let target_pos = ball_pos + -1.0 * distance_to_ball_center * nudge_dir;
+            target_pos
+
         } else {
             group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), "DEFENSE!", white);
             let ball_to_my_goal_dir = (my_goal_pos - ball_pos).normalize();
@@ -235,7 +262,7 @@ impl MyBot {
         }
         
         let misalignment_angle = Angle::between_vecs(&ball_to_opp_goal, &car_to_ball);
-        if offense && misalignment_angle.degrees().abs() < 10.0 // todo adjust for distance to goal and size of goal
+        if offense && misalignment_angle.degrees().abs() < 30.0 // todo adjust for distance to goal and size of goal
             && (ball_pos[2] - car_pos[2]).abs() < 0.5*Self::BALL_RADIUS // about the same height
         {
             boost = true;
