@@ -129,42 +129,42 @@ impl MyBot {
         
         let offense = ball_closer_to_opp_goal || breakaway;
 
-        let target_pos = if offense {
-            let (desired_ball_dir, distance_to_ball_center) = if offense {
-                group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), if breakaway { "BREAKAWAY!" } else { "OFFENSE!" }, white);
-                (ball_to_opp_goal.normalize(), 1.1 * Self::BALL_RADIUS)
-            } else {
-                group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), "DEFENSE!", white);
-                //let avg = (ball_to_opp_goal.normalize() + -1.0 * ball_to_my_goal.normalize()) / 2.0;
-                (-1.0 * ball_to_my_goal.normalize(), 0.9 * Self::BALL_RADIUS)
-            };
-
-            let ball_vel_dir = ball_vel.normalize();
-            let nudge_dir = (desired_ball_dir - ball_vel_dir).normalize();
-
-            {
-                let arrow_len = 2.0 * Self::BALL_RADIUS;
-                
-                let vel_arrow_tip = ball_pos + arrow_len * ball_vel_dir;
-                group.draw_line_3d((ball_pos.x, ball_pos.y, ball_pos.z),  (vel_arrow_tip.x, vel_arrow_tip.y, vel_arrow_tip.z), green);
-
-                let desired_arrow_tip = ball_pos + arrow_len * desired_ball_dir;
-                group.draw_line_3d((ball_pos.x, ball_pos.y, ball_pos.z),  (desired_arrow_tip.x, desired_arrow_tip.y, desired_arrow_tip.z), blue);
-
-                let nudge_arrow_tip = vel_arrow_tip + arrow_len * nudge_dir;
-                group.draw_line_3d((vel_arrow_tip.x, vel_arrow_tip.y, vel_arrow_tip.z),  (nudge_arrow_tip.x, nudge_arrow_tip.y, nudge_arrow_tip.z), mag);
-
-            }
-
-            let target_pos = ball_pos + -1.0 * distance_to_ball_center * nudge_dir;
-            target_pos
-
+        let (desired_ball_dir, distance_to_ball_center) = if offense {
+            group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), if breakaway { "BREAKAWAY!" } else { "OFFENSE!" }, white);
+            (ball_to_opp_goal.normalize(), 1.1 * Self::BALL_RADIUS)
         } else {
             group.draw_string_3d((car_pos.x, car_pos.y, car_pos.z), (1,1), "DEFENSE!", white);
-            let ball_to_my_goal_dir = (my_goal_pos - ball_pos).normalize();
-            ball_pos + Self::BALL_RADIUS * 0.9 * ball_to_my_goal_dir
+            let ball_to_my_goal_distance = ball_to_my_goal.magnitude();
+            let ball_to_opp_goal_distance = ball_to_opp_goal.magnitude();
+            let total_distance = ball_to_my_goal_distance + ball_to_opp_goal_distance;
+            let closeness_to_my_goal = total_distance / ball_to_my_goal_distance;
+            let closeness_to_opp_goal = total_distance / ball_to_opp_goal_distance;
+            let avg = closeness_to_opp_goal * ball_to_opp_goal.normalize() + -1.0 * closeness_to_my_goal * ball_to_my_goal.normalize();
+            (avg.normalize(), 0.9 * Self::BALL_RADIUS)
         };
 
+        let ball_vel_dir = ball_vel.normalize().get_numeric();
+        let nudge_dir = if let Some(ball_vel_dir) = ball_vel_dir {
+            (desired_ball_dir - ball_vel_dir).normalize()
+        } else {
+            // ball_vel is 0 so it is directionless. 
+            desired_ball_dir.normalize()
+        };
+
+        {
+            let arrow_len = 2.0 * Self::BALL_RADIUS;
+            
+            let vel_arrow_tip = ball_pos + ball_vel_dir.map_or(Default::default(), |v| arrow_len * v );
+            group.draw_line_3d((ball_pos.x, ball_pos.y, ball_pos.z),  (vel_arrow_tip.x, vel_arrow_tip.y, vel_arrow_tip.z), green);
+            let desired_arrow_tip = ball_pos + arrow_len * desired_ball_dir;
+            group.draw_line_3d((ball_pos.x, ball_pos.y, ball_pos.z),  (desired_arrow_tip.x, desired_arrow_tip.y, desired_arrow_tip.z), blue);
+
+            let nudge_arrow_tip = vel_arrow_tip + arrow_len * nudge_dir;
+            group.draw_line_3d((vel_arrow_tip.x, vel_arrow_tip.y, vel_arrow_tip.z),  (nudge_arrow_tip.x, nudge_arrow_tip.y, nudge_arrow_tip.z), mag);
+
+        }
+
+        let target_pos = ball_pos + -1.0 * distance_to_ball_center * nudge_dir;
         group.draw_line_3d((car_pos.x, car_pos.y, car_pos.z), (target_pos.x, target_pos.y, target_pos.z), white);
         
 
@@ -262,8 +262,8 @@ impl MyBot {
         }
         
         let misalignment_angle = Angle::between_vecs(&ball_to_opp_goal, &car_to_ball);
-        if offense && misalignment_angle.degrees().abs() < 30.0 // todo adjust for distance to goal and size of goal
-            && (ball_pos[2] - car_pos[2]).abs() < 0.5*Self::BALL_RADIUS // about the same height
+        if offense && misalignment_angle.degrees().abs() < 45.0 // todo adjust for distance to goal and size of goal
+            && (ball_pos[2] - car_pos[2]).abs() < 1.0*Self::BALL_RADIUS // about the same height
         {
             boost = true;
         }
@@ -340,5 +340,20 @@ impl ToVec3 for rlbot::Vector3 {
 impl ToVec3 for rlbot::flat::Vector3 {
     fn to_vec3(&self) -> na::Vector3<f32> {
         na::Vector3::new(self.x(), self.y(), self.z())
+    }
+}
+
+trait IsNumeric {
+    fn get_numeric(self) -> Option<Self> where Self:Sized;
+}
+
+impl IsNumeric for Vector3<f32> {
+    fn get_numeric(self) -> Option<Self> {
+        for a in self.as_slice() {
+            if !f32::is_finite(*a) {
+                return None;
+            }
+        }
+        Some(self)
     }
 }
